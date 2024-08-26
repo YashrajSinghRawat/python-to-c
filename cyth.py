@@ -1,52 +1,52 @@
-def identify_type(value):
-    if all(c.isdigit() for c in value):
+def identify_type(value, variables):
+    if all(c.isdigit() for c in value) or (value.startswith('int(') and value.endswith(')')):
         return 'int'
-    if all(c.isdigit() or c == '.' for c in value):
+    if all(c.isdigit() or c == '.' for c in value) or (value.startswith('float(') and value.endswith(')')):
         return 'float'
-    return 'char*'
+    if value.startswith('"') and value.endswith('"') or value.startswith("'") and value.endswith("'") or value.startswith('str(') and value.endswith(')'):
+        return 'char*'
+    if value in variables:
+        return variables[value].split('__')[1]
+    raise ValueError(f"Variable '{value}' is not declared.")
 
 
 def convert_to_c(python_code):
-    c_code = python_code
-    variables = {}
-
-    # Split the code into lines
     lines = python_code.split('\n')
+    variables = {}
+    c_lines = []
 
     for line in lines:
         if '=' in line:
             var_name, var_value = line.split('=', 1)
             var_name = var_name.strip()
             var_value = var_value.strip()
-            var_type = identify_type(var_value)
-            variables[var_name] = var_type
-            new_var_name = f"{var_name}__{var_type}"
-            c_code = c_code.replace(var_name, new_var_name)
+            var_type = identify_type(var_value, variables)
+            if '*' in var_type:
+                new_var_name = f"{var_name}__{var_type.replace('*', '')}_ptr"
+            else:
+                new_var_name = f"{var_name}__{var_type}"
+            variables[var_name] = new_var_name
+            c_line = f"{var_type} {new_var_name} = {var_value};"
+        elif 'print(' in line:
+            var_name = line.split('(')[1].split(')')[0].strip()
+            new_var_name = variables.get(var_name, var_name)
+            c_line = f"printf({new_var_name});"
+        elif 'input(' in line:
+            var_name = line.split('=')[0].strip()
+            input_prompt = line.split('input(')[1].split(')')[0].strip()
+            new_var_name = variables.get(var_name, var_name)
+            var_type = new_var_name.split('__')[1]
+            if var_type == 'int':
+                c_line = f'scanf("%d", &{new_var_name});'
+            elif var_type == 'float':
+                c_line = f'scanf("%f", &{new_var_name});'
+            elif var_type == 'char':
+                c_line = f'scanf("%s", {new_var_name});'
+        else:
+            c_line = line
+        c_lines.append(c_line)
 
-    # Variable initialization and declaration with types
-    for var_name, var_type in variables.items():
-        new_var_name = f"{var_name}__{var_type}"
-        c_code = c_code.replace(
-            f'{new_var_name} = ', f'{var_type} {new_var_name} = ')
-
-    # Print to printf correction
-    c_code = c_code.replace("print(", "printf(")
-    c_code = c_code.replace(")", ");")
-
-    # Input to scanf correction with type handling
-    for var_name, var_type in variables.items():
-        new_var_name = f"{var_name}__{var_type}"
-        if var_type == "int":
-            c_code = c_code.replace(
-                f'{new_var_name} = int(scanf(', f'scanf("%d", &{new_var_name})')
-        elif var_type == "float":
-            c_code = c_code.replace(
-                f'{new_var_name} = float(scanf(', f'scanf("%f", &{new_var_name})')
-        elif var_type == "char*":
-            c_code = c_code.replace(
-                f'{new_var_name} = str(scanf(', f'scanf("%s", {new_var_name})')
-
-    return c_code
+    return '\n'.join(c_lines)
 
 
 # Example usage
